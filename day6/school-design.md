@@ -70,3 +70,12 @@ I would add an index on `enrolments.student_id`.
 ```sql
 CREATE INDEX idx_enrolments_student_id
 ON enrolments(student_id);
+
+The primary key already makes lookups by student fast (student_id
+comes first). Teachers will often ask "who is on my course?", which
+searches by course_id, so a separate index on course_id speeds up
+that query.
+
+## SQL or NoSQL?
+ 
+I would choose SQL for this school system because the data has clear relationships between students, courses and enrolments. Students and courses have a many-to-many relationship that is naturally represented using a relational join table. SQL also provides primary keys, foreign keys, unique constraints and other rules that help maintain data integrity. Queries using JOIN, GROUP BY and LEFT JOIN make it easy to retrieve information such as courses taken by a student and the number of students in each course. NoSQL could be useful for systems with highly flexible or rapidly changing data structures, but a relational SQL database is a better fit for this structured school system.
