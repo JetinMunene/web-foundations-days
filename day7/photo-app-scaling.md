@@ -124,117 +124,118 @@ The database should store metadata such as:
 Object storage is designed to store large amounts of files and can scale independently from the application database.
 
 ## 9. SnapShare Architecture
-                         ┌─────────────────────┐
-                         │       Users         │
-                         │ Mobile / Web Apps   │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │        CDN          │
-                         │ Photos & Thumbnails │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │   Load Balancer     │
-                         └──────────┬──────────┘
-                                    │
-                    ┌───────────────┼───────────────┐
-                    │               │               │
-                    ▼               ▼               ▼
-              ┌───────────┐   ┌───────────┐   ┌───────────┐
-              │ App Server│   │ App Server│   │ App Server│
-              │     1     │   │     2     │   │     3     │
-              └─────┬─────┘   └─────┬─────┘   └─────┬─────┘
-                    │               │               │
-                    └───────────────┼───────────────┘
-                                    │
-                    ┌───────────────┴───────────────┐
-                    │                               │
-                    ▼                               ▼
-             ┌─────────────┐                ┌───────────────┐
-             │    Cache    │                │ Primary DB    │
-             │   (Redis)   │                │               │
-             └──────┬──────┘                └───────┬───────┘
-                    │                               │
-                    │                               ▼
-                    │                       ┌───────────────┐
-                    │                       │  Read Replica │
-                    │                       └───────────────┘
-                    │
-                    │
-                    │        ┌──────────────────────┐
-                    └───────►│    Object Storage    │
-                             │ Original Photos      │
-                             │ + Thumbnails         │
-                             └──────────────────────┘
+                              ┌──────────────────────┐
+                              │        USERS         │
+                              │   Web / Mobile App   │
+                              └──────────┬───────────┘
+                                         │
+                                         ▼
+                              ┌──────────────────────┐
+                              │         CDN          │
+                              │ Photos & Thumbnails  │
+                              └──────────┬───────────┘
+                                         │
+                                         ▼
+                              ┌──────────────────────┐
+                              │    LOAD BALANCER     │
+                              └──────────┬───────────┘
+                                         │
+                         ┌───────────────┼───────────────┐
+                         │               │               │
+                         ▼               ▼               ▼
+                  ┌────────────┐  ┌────────────┐  ┌────────────┐
+                  │ APP SERVER │  │ APP SERVER │  │ APP SERVER │
+                  │     1      │  │     2      │  │     3      │
+                  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘
+                        │               │               │
+                        └───────────────┼───────────────┘
+                                        │
+                         ┌──────────────┼──────────────┐
+                         │                             │
+                         ▼                             ▼
+                  ┌─────────────┐              ┌───────────────┐
+                  │    CACHE    │              │  PRIMARY DB   │
+                  │   Redis     │              │   Metadata    │
+                  └─────────────┘              └───────┬───────┘
+                                                       │
+                                                       │ Replication
+                                                       ▼
+                                               ┌───────────────┐
+                                               │  READ REPLICA │
+                                               │    Database   │
+                                               └───────────────┘
 
 
-          Photo Upload Processing
+                         PHOTO UPLOAD / THUMBNAIL PIPELINE
 
-              App Server
-                   │
-                   ▼
-            ┌───────────────┐
-            │     Queue     │
-            └───────┬───────┘
-                    │
-                    ▼
-            ┌───────────────┐
-            │    Worker     │
-            │               │
-            │ Create        │
-            │ Thumbnail     │
-            └───────┬───────┘
-                    │
-                    ▼
-            ┌───────────────┐
-            │ Object Storage│
-            │   Thumbnail   │
-            └───────────────┘
+                  ┌─────────────────┐
+                  │   APP SERVER    │
+                  └────────┬────────┘
+                           │
+                           │ Upload original photo
+                           ▼
+                  ┌─────────────────────┐
+                  │   OBJECT STORAGE    │
+                  │                     │
+                  │  Original Photos    │
+                  │  + Thumbnails       │
+                  └─────────────────────┘
+                           ▲
+                           │
+                           │ Store thumbnail
+                           │
+                  ┌────────┴─────────┐
+                  │     WORKER       │
+                  │ Thumbnail Worker │
+                  └────────┬─────────┘
+                           ▲
+                           │
+                           │ Get job
+                           │
+                  ┌────────┴─────────┐
+                  │      QUEUE       │
+                  │  Thumbnail Jobs  │
+                  └────────┬─────────┘
+                           ▲
+                           │
+                           │ Create job
+                           │
+                  ┌────────┴─────────┐
+                  │   APP SERVER     │
+                  └──────────────────┘
 
 ## 10. Component Responsibilities
 
-CDN
--The CDN stores and serves frequently requested photos and thumbnails from locations close to users, reducing latency and application-server traffic.
-Load Balancer
--The load balancer distributes incoming requests across multiple application servers so that no single server becomes overloaded.
-App Servers
--Application servers handle business logic such as authentication, uploads, feed generation, following users, and API requests.
-Cache
--The cache stores frequently accessed data such as popular feed information and metadata so that repeated requests do not always need to reach the database.
-Primary Database
--The primary database stores structured application data such as users, relationships, photo metadata, and upload information, while handling writes.
-Read Replica
--The read replica handles database read operations so that heavy feed-reading traffic does not overload the primary database.
-Object Storage
--Object storage stores the original photo files and thumbnails efficiently and independently from the application database.
-Queue
--The queue holds background jobs such as thumbnail creation so that image processing does not slow down the user's upload request.
-Worker
--The worker retrieves thumbnail jobs from the queue, creates smaller thumbnail images, and stores the thumbnails in object storage.
+-CDN: The CDN stores and serves frequently requested photos and thumbnails from locations close to users, reducing latency and application-server traffic.
+-Load Balancer: The load balancer distributes incoming requests across multiple application servers so that no single server becomes overloaded.
+-App Servers(Stateless): Application servers handle business logic such as authentication, uploads, feed generation, following users, and API requests.
+-Cache: The cache stores frequently accessed data such as popular feed information and metadata so that repeated requests do not always need to reach the database.
+-Primary Database: The primary database stores structured application data such as users, relationships, photo metadata, and upload information, while handling writes.
+-Read Replica:The read replica handles database read operations so that heavy feed-reading traffic does not overload the primary database.
+-Object Storage: Stores the large original photo files and generated thumbnails separately from the database.
+-Message Queue: The message queue stores thumbnail-generation jobs temporarily so that upload requests can complete without waiting for image processing.
+-Background Worker: The background worker consumes thumbnail jobs from the queue, creates thumbnails, and stores the generated thumbnails in object storage.
 
 ## 11. Photo Upload Flow
-
-Step 1: User selects a photo
+The upload process works as follows:
+-Step 1: User selects a photo
 The user selects a photo using the SnapShare mobile or web application.
-Step 2: Upload request reaches the load balancer
+-Step 2: Upload request reaches the load balancer
 The upload request is sent to SnapShare and the load balancer forwards it to an available application server.
-Step 3: Application server validates the upload
+-Step 3: Application server validates the upload
 The application server checks the user's authentication, file type, file size, and other upload requirements.
-Step 4: Original photo is stored
+-Step 4: Original photo is stored
 The application server uploads the original photo to object storage.
-Step 5: Photo metadata is saved
+-Step 5: Photo metadata is saved
 The application server stores metadata about the photo in the primary database, including the user ID, photo ID, object storage location, caption, and upload time.
-Step 6: Thumbnail job is added to the queue
+-Step 6: Thumbnail job is added to the queue
 The application server creates a thumbnail-processing job and places it into the queue.
 The upload request does not need to wait for thumbnail processing to finish.
-Step 7: Worker processes the job
+-Step 7: Worker processes the job
 A background worker retrieves the job from the queue and creates a 50 KB thumbnail from the original photo.
-Step 8: Thumbnail is stored
+-Step 8: Thumbnail is stored
 The worker stores the generated thumbnail in object storage.
-Step 9: Feed becomes available
+-Step 9: Feed becomes available
 The photo metadata can be included in the user's followers' feeds. The CDN can then serve the thumbnail or original photo when users request it.
 
 ## 12. Feed Reading Flow
@@ -259,13 +260,12 @@ The queue and workers can also scale horizontally. If many thumbnail jobs are wa
 
 ## 14. Trade-offs
 
-Trade-Off 1: CDN Performance vs Cost
+-Trade-Off 1: CDN Performance vs Cost
 Using a CDN improves photo delivery speed and reduces traffic to the application servers, but CDN usage introduces additional infrastructure costs.
 For SnapShare, the performance benefits are important because the system is read-heavy.
 
-Trade-Off 2: Asynchronous Thumbnail Processing vs Immediate Availability
-Using a queue and background worker makes uploads faster because the user does not have to wait for thumbnail generation.
-However, the thumbnail may not be available immediately after the upload because it must first be processed by the worker.
+ -Trade-off 2: Simplicity vs speed of upload: thumbnails are made in the background.
+   For a moment the photo has no thumbnail, and the app shows a
+   placeholder, but uploads stay fast even during busy periods. 
 
-Trade-Off 3: Object Storage vs Simplicity
-Object storage is much better suited to storing hundreds of terabytes of photos than a database, but it introduces additional infrastructure components and requires the application to manage object-storage references.
+
