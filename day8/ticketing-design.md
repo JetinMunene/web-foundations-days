@@ -226,19 +226,26 @@ them like available seats.
 
   and are let in at a rate the system can handle, in arrival order.
 
-  This protects the database and is fair.
+This protects the database from being overwhelmed and improves fairness by giving users an orderly opportunity to purchase tickets.
 
 - Load balancer + auto-scaled stateless app servers: extra servers
 
   are added before a known big sale and removed afterwards.
 
-- Cache: the seat map is cached for a few seconds to absorb millions
+- Redis Cache: the seat map is cached for a few seconds to absorb millions
 
-  of views; the final check always happens in the database.
+  of views; the final check always happens in the database.Caching reduces database load and improves response times.     However, the cache is not treated as the final authority for seat availability. The primary database performs the final check before a seat is held or sold.
+
+- Application Servers: The application servers handle business logic such as authentication, event browsing, seat selection, seat holds, and order creation.
+
+They are stateless, meaning that user sessions and important data are not stored only on one server. This allows more application servers to be added when traffic increases.
 
 - Primary database: the only place seats are held and sold, so the
 
   transaction guarantees correctness.
+- Payment provider: The external payment provider processes customer payments. The TicketHub application sends the required payment information and receives a success or failure response.
+
+The application should not store sensitive payment credentials.
 
 - Read replicas: handle browsing and search so the primary can focus
 
@@ -248,35 +255,64 @@ them like available seats.
 
   background after payment, keeping checkout fast.
 
+- Monitoring and Logging
+
+Monitoring records system health, request rates, database performance, errors, queue length, and application-server health.
+
+During a large ticket sale, these metrics help engineers identify bottlenecks and respond quickly to failures.
+
 
 
 ## 7. Trade-offs
 
-1. Correctness over availability for purchases: holds and orders
+1. Trade-off 1: Strong Consistency vs Availability During Seat Reservation
 
-   always go to the primary database, even if that means some buyers
+The system could make seat reservations highly available by allowing different application servers or database replicas to process reservations independently. However, this creates a serious risk of two users successfully reserving the same seat.
 
-   wait or see "try again". Selling a seat twice would be far worse.
-2. Trade-off 4: High Availability vs. Infrastructure Cost
+TicketHub therefore chooses strong consistency for the seat reservation path.
 
-Multiple application servers, redundant infrastructure, replicas, queues, and monitoring improve reliability.
+All seat holds and purchases are sent to the primary database. A transaction and conditional update verify the current seat status before changing it.
 
-However, they cost more than running a single server.
+For example:
 
-TicketHub should scale infrastructure according to measured demand and business requirements.
+UPDATE seats
+SET status = 'held',
+    hold_id = 55,
+    hold_expires_at = NOW() + INTERVAL '10 minutes'
+WHERE id = 101
+  AND status = 'available';
 
-3. Freshness vs speed for the seat map: the cached map may be a few
+Only one transaction can successfully change the seat from available to held.
 
-   seconds out of date, so a seat that looks free may already be held.
+The disadvantage is that during extreme traffic or a database failure, some users may experience delays or receive a temporary error instead of completing a purchase immediately.
 
-   The buyer then gets a 409 and picks another seat - acceptable,
+Decision: TicketHub chooses correctness over maximum availability because selling the same seat twice is more damaging than temporarily rejecting or delaying a reservation.
 
-   because the final check is always correct.
+2. Trade-off 2: Cache Performance vs Data Freshness
 
-4. Fairness vs simplicity: the waiting room adds complexity, but
+Caching the seat map in Redis can significantly reduce database traffic during a major sale. However, cached information may become outdated quickly.
 
-   without it the fastest bots and refreshers would win, and the
+For example, a seat may appear available in the cached seat map while another customer has already placed a hold on it.
 
-   spike could overload the system.
+TicketHub therefore uses caching only to improve the browsing experience. The cache is never trusted for the final reservation decision.
+
+The final seat check always happens against the primary database.
+
+This creates a trade-off:
+
+More caching: faster responses and lower database load.
+
+Less caching: fresher information but higher database traffic.
+
+Decision: TicketHub accepts slightly stale seat-map information in exchange for much better performance. If a user selects a seat that has already been taken, the database returns 409 Conflict, and the user can select another seat.
 
 
+Design Principle
+
+The most important principle in the architecture is that the database is the final authority for seat ownership.
+
+The CDN, cache, load balancer, waiting room, read replicas, and workers exist primarily to absorb and distribute the huge amount of traffic.
+
+The critical operation remains the database transaction that changes a seat from available to held or sold. This keeps the system scalable while protecting the most important business rule:
+
+A seat can only be successfully sold to one customer.
