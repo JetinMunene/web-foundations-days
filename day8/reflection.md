@@ -1,0 +1,7 @@
+# Day 8 Reflection
+
+The most difficult concept in the course was system scalability, especially understanding how to design a system that can handle a sudden increase in traffic without becoming unavailable. At first, it was difficult to translate user numbers into requests per second and then connect those calculations to architecture decisions. I overcame this by breaking the problem into smaller parts: estimating normal traffic, calculating peak traffic, identifying bottlenecks, and then choosing components such as load balancers, caching, queues, and database replicas to address those bottlenecks.
+
+The part of my capstone that I would improve is the architecture and scalability analysis. Based on the feedback I received, I would make the architecture diagrams more complete and explain the relationship between each component and the actual request flows more clearly. I would also perform more realistic load calculations and explain the assumptions behind each estimate.
+
+Next, I want to learn more about cloud architecture, particularly how systems like this can be deployed using services from Microsoft Azure. I also want to learn more about database scaling, distributed systems, message queues, monitoring, and cloud security. These skills would help me move from designing systems on paper to building and operating scalable applications in real-world environments.
